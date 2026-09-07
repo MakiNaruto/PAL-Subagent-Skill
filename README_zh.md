@@ -86,6 +86,16 @@ tool_timeout_sec = 1200
 
 MCP 添加完成后**重启会话**使注册生效。主 agent 工具列表中出现 PAL 的工具（如 `clink`）即环境就绪，可直接委派任务。
 
+命令行自行验证（关注核心输出）：
+
+```bash
+# Claude：期望 "Status: ✔ Connected"；若为 "✗ Failed to connect" 则注册失败
+claude mcp get pal
+
+# Codex：期望 "enabled: true"；"codex mcp list" 中 Status 列应为 enabled
+codex mcp get pal
+```
+
 ### 4. 卸载
 
 ```bash

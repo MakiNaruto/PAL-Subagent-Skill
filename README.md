@@ -86,6 +86,16 @@ tool_timeout_sec = 1200
 
 After adding the MCP server, **restart the session** for the registration to take effect. The environment is ready once the PAL tools (e.g. `clink`) appear in the main agent's tool list, and tasks can be delegated directly.
 
+CLI self-verification (key point to check):
+
+```bash
+# Claude: expect "Status: ✔ Connected"; "✗ Failed to connect" means registration failed
+claude mcp get pal
+
+# Codex: expect "enabled: true"; "codex mcp list" should show Status = enabled
+codex mcp get pal
+```
+
 ### 4. Uninstallation
 
 ```bash
