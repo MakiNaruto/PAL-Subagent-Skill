@@ -1,141 +1,93 @@
 # PAL Subagent 安装指南
 
-本文档是 `scripts/pal-subagent-install.sh` 的详细说明，仅在需要了解安装细节或排查故障时阅读。
+## 安装布局
 
-## 架构
+安装器先把 skill 文件装入 Claude 与 Codex 的用户级 skills 目录，再准备唯一一份 PAL 服务并注册 MCP。轻量 skill 副本只含 `SKILL.md`、脚本、参考文档及可选的 agents/assets；不复制服务仓库、`.env`、日志、测试或 `.git`。
 
+首次从 Claude 安装：
+
+```text
+~/.claude/skills/pal-subagent/
+  SKILL.md、scripts/、references/
+  pal-mcp-server/                   ← 唯一服务
+<Codex skills目录>/pal-subagent/
+  SKILL.md、scripts/、references/    ← 轻量副本
+~/.config/pal-subagent/install.json ← 共享记录，无密钥
 ```
-Claude Code / 主 agent
-    │
-    ▼
-PAL MCP Server（MCP 服务，名称: pal）
-    │
-    ▼
-Codex CLI（作为隔离子 agent 执行任务）
-```
+
+从 Codex 发起时，服务默认放在 Codex 安装后的 skill 目录下。已有安装优先复用共享记录、两端用户级 MCP 配置或来源目录内的服务；不会因换客户端而下载第二份。源码目录与服务目录可以不同。共用源码和 conda 环境，不要求两个 stdio 客户端共用单一进程。
 
 ## 前置要求
 
-| 依赖 | 必需性 | 说明 |
-|------|--------|------|
-| conda（Miniconda/Anaconda） | 必需 | Python 环境管理 |
-| git | 必需 | 克隆 PAL MCP Server 仓库 |
-| Claude Code | 至少其一 | 注册 MCP 服务；两者都没有时安装会失败 |
-| Codex CLI | 至少其一 | 子 agent 的实际执行者，需已登录（`codex` 可正常启动） |
-| 网络 | 必需 | 首次安装需访问 GitHub |
+- conda；安装器的引导 Python 需要 3.11+，通常直接使用 conda base 的 Python。PAL 环境独立复用/创建，不需要激活。
+- git（首次下载/明确更新时）、网络（需要下载源码或依赖时）。
+- 至少安装 Codex CLI 或 Claude Code，并为实际执行子任务的 CLI 完成登录。
 
-Codex CLI 安装方式：`npm install -g @openai/codex`
+Claude skill 路径：`~/.claude/skills/pal-subagent`。Codex 默认复用共享记录中的路径，其次使用已有 `$CODEX_HOME/skills`（未设置时为 `~/.codex/skills`）；新安装使用 `~/.agents/skills`，也可通过 `--codex-skills-dir` 指定。客户端版本支持应以实际 skill 发现结果为准，不在多个 Codex 搜索目录重复安装。
 
-## 快速开始
+## 沟通与执行
+
+先确定发起端，用只读预览展示两端路径、服务路径和环境名。向用户解释：已有环境复用，缺失环境会创建 Python 3.12；已有服务复用，`.env` 保留；将修改两端 MCP 配置。没有明确授权时等待用户选择/确认。
 
 ```bash
-# 交互式（会询问环境名，回车使用默认 pal-mcp-server）
-bash <skill目录>/scripts/pal-subagent-install.sh
-
-# 非交互式（指定环境名，适合自动化/agent 调用）
-bash <skill目录>/scripts/pal-subagent-install.sh --env-name pal-mcp-server
+bash <skill目录>/scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --dry-run
 ```
 
-安装完成后**重启 CLI 会话**，MCP 注册才会生效。验证：
+用户已经授权具体方案后，agent 可非交互执行：
 
 ```bash
-claude mcp list   # 应看到 pal
+bash <skill目录>/scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --yes
 ```
 
-## 参数说明
+终端直接运行时先显示方案并询问 `Apply this plan? [y/N]`。非交互且没有 `--yes` 时停止，避免未沟通就写入。`--yes` 表示先前已经获得授权，不替代沟通。
 
-| 参数 | 说明 |
-|------|------|
-| `--env-name NAME` | 指定要创建/复用的 conda 环境名，跳过交互提示 |
-| `-h`, `--help` | 显示帮助 |
+### 参数
 
-未提供 `--env-name` 且无 TTY（非交互环境）时，自动使用默认环境名 `pal-mcp-server`。
+| 参数 | 含义 |
+|---|---|
+| `--client claude/codex` | 发起端，决定首次默认服务位置；共享记录已有发起端时可省略 |
+| `--env-name NAME` | 复用/创建的环境；省略时使用共享记录或 `pal-mcp-server` |
+| `--server-dir PATH` | 明确选择唯一服务目录，也用于解决两端配置冲突；不会迁移/删除原目录 |
+| `--codex-skills-dir PATH` | Codex skills 的父目录（安装器会追加 `pal-subagent`） |
+| `--dry-run` | 只读展示方案，不复制文件、下载或写配置 |
+| `--yes` | 在先前授权后应用方案 |
+| `--update` | 明确更新服务源码（`git pull --ff-only`）并安装依赖；有已跟踪的本地改动时停止 |
 
-## 脚本执行内容
+指定新服务目录会在该目录准备一份服务并统一 MCP 指向，旧目录保留。若只是复用既有安装，应指定已有目录，不把该参数当作移动命令。想要迁移应另外提出明确迁移请求。
 
-按顺序执行以下步骤（与 `steup.sh` 逻辑一致）：
+## 安装步骤与重复执行
 
-1. **确认环境名**：默认 `pal-mcp-server`，可自定义
-2. **检查 conda**：未安装则报错退出
-3. **获取仓库**：克隆 `https://github.com/BeehiveInnovations/pal-mcp-server.git`（`--depth 1`）到 skill 目录下的 `pal-mcp-server/`；已存在则 `git pull --ff-only` 更新
-4. **校验仓库内容**：确认 `server.py`、`requirements.txt` 存在
-5. **创建/复用 conda 环境**：Python `3.12`
-6. **安装依赖**：`mcp>=1.28,<2` + `requirements.txt`
-7. **注册 Claude MCP**：`claude mcp add pal -s user`（user 级，全局可用）
-8. **注册 Codex MCP**：备份 `~/.codex/config.toml` 后写入 `[mcp_servers.pal]` 段（`tool_timeout_sec = 1200`）
+1. 检查现有记录和用户级配置；发现不同服务路径时停止，要求明确 `--server-dir`。现有记录指向缺失目录时停止，避免悄悄创建第二份。
+2. 安装两端轻量 skill；已有文件内容不同时先备份，服务目录及用户文件保留。
+3. 准备唯一服务；已有源码默认不更新，`.env` 已有时不覆盖。
+4. 复用 conda 环境；只有环境不存在时创建。依赖已经满足要求时跳过网络安装，否则合并安装 `mcp>=1.28,<2` 和仓库 requirements，再执行 `pip check`。
+5. 写入共享记录，备份并注册两端 MCP。两端使用同一个 Python 和绝对 `server.py` 路径；PAL 的 PATH 包含当前 CLI 所在目录，Codex `tool_timeout_sec=1200`。
+6. 用实际环境启动 MCP、完成握手并验证 `clink`，共享记录标记 `verified=true`。注册/验证失败则返回非零并保留记录，修复后可重跑。
 
-Claude 或 Codex 任一未安装时跳过对应注册并警告（不中断）；两者都缺失时报错退出。
+未安装某端 CLI 时也安装其 skill 文件，跳过对应 MCP 注册并提示。后续安装该 CLI 后重跑安装器即可。配置是用户级的；项目内同名 PAL 配置可能覆盖它，需要在目标项目额外检查。
 
-## 手动安装（脚本失败时）
+## 验证与调用
+
+重启/重新加载客户端，使 skill 与 MCP 配置生效：
+
+```text
+Claude: /pal-subagent 检查当前项目测试结果
+Codex:  $pal-subagent 检查当前项目测试结果
+```
+
+命令行查看配置：`codex mcp get pal`、`claude mcp get pal`。实际 MCP 握手验证：
 
 ```bash
-# 1. 克隆仓库到 skill 目录
-git clone --depth 1 https://github.com/BeehiveInnovations/pal-mcp-server.git \
-    <skill目录>/pal-mcp-server
-cd <skill目录>/pal-mcp-server
-
-# 2. 写入 .env（本地模型自定义 API 端点，已存在则跳过）
-cat > .env <<'EOF'
-# Option 3: Use custom API endpoints for local models (Ollama, vLLM, LM Studio, etc.)
-CUSTOM_API_URL=http://localhost:11434/v1                # Ollama example
-CUSTOM_API_KEY=safe-code                                # Empty for Ollama (no auth needed)
-CUSTOM_MODEL_NAME=llama3.2                              # Default model name
-EOF
-
-# 3. 创建环境并安装依赖
-conda create -n pal-mcp-server python=3.12 -y
-conda run -n pal-mcp-server python -m pip install "mcp>=1.28,<2" -r requirements.txt
-
-# 4. 注册 Claude MCP（PYTHON 替换为实际路径，见下方说明）
-claude mcp remove pal -s user || true
-claude mcp add pal -s user \
-    -e "PATH=/usr/local/bin:/usr/bin:/bin:${HOME}/.local/bin" \
-    -- <PYTHON> <skill目录>/pal-mcp-server/server.py
-
-# 4. Codex：编辑 ~/.codex/config.toml，追加
-# [mcp_servers.pal]
-# type = "stdio"
-# command = "<PYTHON>"
-# args = ["<skill目录>/pal-mcp-server/server.py"]
-# cwd = "<skill目录>/pal-mcp-server"
-# tool_timeout_sec = 1200
+<共享记录中的Python> <skill目录>/scripts/pal_subagent_setup.py probe --server-dir <共享服务目录>
 ```
 
-获取 conda 环境的 Python 路径：
+仅使用 `clink` 时认证来自 Codex/Claude CLI，不需要为 PAL 另设 provider 密钥。默认 `.env` 中的 Ollama 端点是占位配置；使用其他模型工具时须配置真实可用的 provider。
 
-```bash
-conda run -n pal-mcp-server python -c 'import sys; print(sys.executable)'
-```
+## 故障排查与回退
 
-## 关于 API Key 与 .env
+- 引导 Python 缺少 `tomllib`：用 Python 3.11+ 直接执行 `pal_subagent_setup.py install ...`；无需重建 PAL 环境。
+- 路径冲突：先展示现有路径，选择要复用的一份，再传 `--server-dir`。
+- 失败后检查共享记录的 `registered_clients`/`verified` 和错误输出，再重跑；不自动改换环境或服务路径。
+- 配置及被覆盖的 skill 文件会生成 `.backup.<时间戳>`。需要回退时选择相应备份，不删除共享服务或已有 conda 环境。
 
-安装脚本会在 `pal-mcp-server/.env` 中写入本地模型自定义端点配置（已存在时不覆盖）：
-
-```dotenv
-CUSTOM_API_URL=http://localhost:11434/v1    # 自定义 API 端点（默认 Ollama）
-CUSTOM_API_KEY=safe-code                    # 按需修改，Ollama 可留空
-CUSTOM_MODEL_NAME=llama3.2                  # 默认模型名
-```
-
-- 使用其他本地服务（vLLM / LM Studio）或远端自定义端点时，手动编辑上述三个值
-- **仅使用 `clink` 委派 Codex 子 agent**：无需任何 provider API key，认证由 Codex CLI 自身的登录态完成
-- **需要 PAL 其他工具**（`chat`/`thinkdeep`/`consensus` 等）：在 `pal-mcp-server/.env` 中配置对应 provider 的 API key（参考仓库内 `.env.example`）
-
-## 故障排查
-
-| 现象 | 原因与处理 |
-|------|-----------|
-| `conda was not found` | 未安装 Miniconda/Anaconda，或未 `conda init`。安装后重开终端再试 |
-| `git clone` 失败 | 网络不通或无法访问 GitHub；配置代理后重跑脚本 |
-| `server.py not found` | 仓库克隆不完整，删除 `pal-mcp-server/` 目录后重跑脚本 |
-| pip 安装超时 | 网络问题；可为 pip 配置镜像源后重跑 |
-| `Neither Claude Code nor Codex CLI was found` | 两个 CLI 都未安装，至少安装其一 |
-| Codex MCP 未生效 | 重启 Codex 会话；检查 `~/.codex/config.toml` 中 `[mcp_servers.pal]` 段 |
-| Claude MCP 未生效 | 重启会话后执行 `claude mcp list` 验证 |
-| 配置被改坏 | 安装脚本每次修改 `config.toml` 前都会备份为 `config.toml.backup.<时间戳>`，可用备份恢复 |
-
-## 重新安装 / 更新
-
-直接重跑安装脚本即可：仓库会 `git pull` 更新，依赖重装，MCP 注册覆盖更新（旧配置自动清理）。
-
-
+开发验证：Python 3.11+ 执行 `python -m unittest discover -s tests -v`；测试只操作临时目录，不触及真实配置。

@@ -100,18 +100,21 @@ clink(
 
 注意：`clink` 会以放宽权限模式启动子 agent（自动应用编辑、执行命令），请仅在可信的工作区内委派任务。
 
-## 安装 / 卸载
+## 安装、更新与卸载
 
-环境未就绪（当前可用工具中无 PAL MCP 工具，如 `clink`）时，参见 [README_zh.md](README_zh.md)：先确认项目来源与定位，再按"使用说明"通过一键脚本安装，或按 Claude Code / Codex / Trae 各自的 MCP 添加方法手动注册，重启会话后即可使用。
+安装会将本 skill 分别安装到 Claude 与 Codex 的用户级 skills 目录；两端只共用一份 PAL 服务源码、一份 `.env` 和同一个 conda 环境。首次安装默认将 `pal-mcp-server/` 放在发起端**安装后的 skill 目录**下，发现已有服务时优先复用。两个 stdio MCP 客户端可分别启动进程，共享的是源码与环境。
 
-安装 / 卸载脚本位于本 skill 目录的 `scripts/` 下（即本 SKILL.md 所在目录）：
+- Claude：`/pal-subagent <任务>`；Codex：`$pal-subagent <任务>`。
+- 用户请求安装、更新、修复或卸载时，读取 [安装指南](references/install-guide.md) 或 [卸载指南](references/uninstall-guide.md)。当前会话没有 `clink` 不等于尚未安装：先检查共享记录与 MCP 配置，已安装时提示重新加载/重启会话。
+- 安装前运行 `--dry-run`，向用户说明两端 skill 路径、唯一服务路径、复用或创建的 conda 环境及 MCP 配置变更。用户未确定路径时允许选择其他目录；已经授权的方案无需重复确认。
+- 已取得用户对具体安装方案的授权后，可以带 `--yes` 非交互执行。不要因为脚本支持 `--yes` 就跳过沟通。发起客户端通过 `--client claude` 或 `--client codex` 明确传入，不从 CLI 是否存在猜测。
+- 安装默认复用源码和满足要求的依赖。只有用户要求更新时才使用 `--update`；两端路径冲突时展示路径，请用户明确选择 `--server-dir`，不要自动选一份覆盖。
+- 共享记录位于 `~/.config/pal-subagent/install.json`；修改/卸载从此记录及当前 MCP 配置解析路径，不把当前 skill 目录当作服务目录。
+- 卸载某一端时保留另一端和共享服务。删除共享服务必须明确授权，并确认两端引用均已移除。conda 环境始终保留，删除环境是另一个需要用户明确要求的操作。
 
 ```bash
-# 安装
-bash <本skill目录>/scripts/pal-subagent-install.sh --env-name <环境名>
-
-# 卸载
-bash <本skill目录>/scripts/pal-subagent-uninstall.sh
+# 先预览安装方案，发起端按当前客户端选择
+bash <本skill目录>/scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --dry-run
+# 用户已同意上述具体方案后执行
+bash <本skill目录>/scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --yes
 ```
-
-详细步骤、参数与故障排查：[references/install-guide.md](references/install-guide.md)；卸载详细说明：[references/uninstall-guide.md](references/uninstall-guide.md)

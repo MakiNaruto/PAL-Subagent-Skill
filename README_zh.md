@@ -1,110 +1,56 @@
 # PAL Subagent Skill
 
-[English](README.md) | [简体中文](README_zh.md)
+[English](README.md) | 简体中文
 
-## 项目来源
+基于 [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server)，通过 `clink` 将明确任务交给已登录的 Codex CLI 或 Claude Code 执行。
 
-基于开源 git 项目 [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server)。安装脚本会将其克隆到本 skill 目录下的 `pal-mcp-server/`，入口为 `server.py`。
+安装器会把 `pal-subagent` skill 安装到 **Claude 和 Codex 两端的 skills 目录**，共用一份 PAL 源码、`.env` 和 conda 环境。首次安装默认把服务放在发起端安装后的 skill 目录下，已有服务优先复用。
 
-## 项目定位
+## 安装
 
-本项目是 PAL MCP Server 的**快速配置与使用的一键化 skill**：
-
-- 提供一键安装 / 卸载脚本（`scripts/`），自动完成环境创建、依赖安装与 MCP 注册
-- 为主 agent 提供"规划-执行"分离的子 agent 委派能力：通过 PAL MCP 的 `clink` 工具，将简单任务委派给隔离子 agent（**Codex CLI 或 Claude Code**），节省主上下文 token
-
-## 使用说明
-
-### 1. 一键安装
-
-前置要求：
-
-| 依赖 | 必需性 | 说明 |
-|------|--------|------|
-| conda（Miniconda/Anaconda） | 必需 | Python 环境管理 |
-| git | 必需 | 克隆 PAL MCP Server 仓库 |
-| Codex CLI / Claude Code | 至少其一 | 子 agent 的实际执行者（Codex 需已登录）；MCP 注册目标 |
-| 网络 | 必需 | 首次安装需访问 GitHub |
+先明确发起端和环境，预览完整方案并与用户沟通：
 
 ```bash
-# 交互式（回车使用默认环境名 pal-mcp-server）
-bash <本skill目录>/scripts/pal-subagent-install.sh
-
-# 非交互式（指定环境名）
-bash <本skill目录>/scripts/pal-subagent-install.sh --env-name pal-mcp-server
+bash scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --dry-run
 ```
 
-脚本自动完成：克隆仓库 → 写入 `.env`（本地模型自定义 API 端点，已存在则保留）→ 创建/复用 conda 环境（Python 3.12）→ 安装依赖 → 注册 Claude MCP → 备份并写入 Codex `config.toml`。
-
-### 2. MCP 添加方法（手动添加）
-
-不跑脚本时，先准备好 server（已克隆 PAL MCP Server 仓库并安装依赖）：
+确认方案后执行（终端交互可省略 `--yes`）：
 
 ```bash
-git clone --depth 1 https://github.com/BeehiveInnovations/pal-mcp-server.git
-conda create -n pal-mcp-server python=3.12 -y
-conda run -n pal-mcp-server python -m pip install "mcp>=1.28,<2" -r requirements.txt
-
-# 获取 conda 环境的 Python 绝对路径，替换下方 <PYTHON>
-conda run -n pal-mcp-server python -c 'import sys; print(sys.executable)'
+bash scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --yes
 ```
 
-以下路径均为示例占位：`<PYTHON>` 即 `/path/to/pal-mcp-server/bin/python`，`server.py` 即 `/path/to/pal-mcp-server/server.py`。
+从 Codex 发起时使用 `--client codex`。已有 `pal-mcp-server` 环境直接复用，缺失时创建 Python 3.12。引导安装器需要 Python 3.11+，通常使用 conda base。至少已安装 Codex CLI 或 Claude Code；缺失的一端只安装 skill 文件，后续安装 CLI 后重跑即可注册 MCP。
 
-**Trae / 通用 MCP 客户端**（编辑器 MCP 配置中添加）：
+- Claude skill：`~/.claude/skills/pal-subagent`。
+- Codex skill：优先沿用记录和已有 `$CODEX_HOME/skills`（默认 `~/.codex/skills`）；新安装用 `~/.agents/skills`。可通过 `--codex-skills-dir` 指定。
+- 共享记录：`~/.config/pal-subagent/install.json`，记录路径和环境，不存密钥。
+- 自定义/选择已有服务：`--server-dir /绝对路径/pal-mcp-server`。
+- 默认不自动更新 PAL；用户明确要求更新时添加 `--update`。
 
-```json
-{
-  "mcpServers": {
-    "pal": {
-      "command": "/path/to/pal-mcp-server/bin/python",
-      "args": [
-        "/path/to/pal-mcp-server/server.py"
-      ]
-    }
-  }
-}
+重复安装只同步轻量 skill 文件、复用服务与满足要求的依赖。源码路径冲突时停止并提示选择。已有 `.env` 保留，变更配置及 skill 文件前备份。安装器实际启动 MCP，验证握手及 `clink` 工具。
+
+## 调用
+
+安装完成后重启/重新加载客户端：
+
+```text
+Claude: /pal-subagent 运行当前项目测试并汇总失败项
+Codex:  $pal-subagent 运行当前项目测试并汇总失败项
 ```
 
-**Claude Code**：
+CLI 子任务需要相应客户端的登录态。仅使用 `clink` 不需要额外 provider API key。默认本地模型端点是占位配置，其他 PAL 模型工具需要可用的 provider。
+
+## 卸载
 
 ```bash
-claude mcp add pal -s user -- /path/to/pal-mcp-server/bin/python /path/to/pal-mcp-server/server.py
+bash scripts/pal-subagent-uninstall.sh --client claude --dry-run
+# 明确授权后：只卸载 Claude，保留 Codex、共享服务与 conda 环境
+bash scripts/pal-subagent-uninstall.sh --client claude --yes
 ```
 
-**Codex**（`~/.codex/config.toml` 追加）：
+卸载两端使用 `--client both`；明确删除共享服务再添加 `--remove-server`，仍有另一端引用时拒绝删除。conda 环境始终保留。
 
-```toml
-[mcp_servers.pal]
-type = "stdio"
-command = "/path/to/pal-mcp-server/bin/python"
-args = ["/path/to/pal-mcp-server/server.py"]
-tool_timeout_sec = 1200
-```
+[安装、更新、迁移注意事项与故障排查](references/install-guide.md) · [卸载详细说明](references/uninstall-guide.md)
 
-### 3. 生效与验证
-
-MCP 添加完成后**重启会话**使注册生效。主 agent 工具列表中出现 PAL 的工具（如 `clink`）即环境就绪，可直接委派任务。
-
-命令行自行验证（关注核心输出）：
-
-```bash
-# Claude：期望 "Status: ✔ Connected"；若为 "✗ Failed to connect" 则注册失败
-claude mcp get pal
-
-# Codex：期望 "enabled: true"；"codex mcp list" 中 Status 列应为 enabled
-codex mcp get pal
-```
-
-### 4. 卸载
-
-```bash
-bash <本skill目录>/scripts/pal-subagent-uninstall.sh
-```
-
-逐项交互确认：Claude MCP 注册 / Codex 配置段 / conda 环境 / 克隆的仓库。手动卸载则对应移除：`claude mcp remove pal -s user`、`~/.codex/config.toml` 中 `[mcp_servers.pal]` 段、编辑器 MCP 配置项。
-
-## 更多
-
-- 详细安装步骤、参数与故障排查：[references/install-guide.md](references/install-guide.md)
-- 卸载详细说明：[references/uninstall-guide.md](references/uninstall-guide.md)
+开发验证（Python 3.11+）：`python -m unittest discover -s tests -v`。

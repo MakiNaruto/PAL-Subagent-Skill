@@ -1,0 +1,6 @@
+/pal-mcp-server/
+.DS_Store
+__pycache__/
+*.py[cod]
+*.backup.*
+.pal-install-backup-*/

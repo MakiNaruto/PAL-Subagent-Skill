@@ -1,110 +1,58 @@
 # PAL Subagent Skill
 
-[English](README.md) | [简体中文](README_zh.md)
+English | [简体中文](README_zh.md)
 
-## Source
+Use [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server)'s `clink` tool to delegate well-defined tasks to an authenticated Codex CLI or Claude Code.
 
-Based on the open-source git project [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server). The install script clones it into `pal-mcp-server/` under this skill directory, with `server.py` as the entry point.
+The installer puts the skill in **both clients' user skill directories**, while sharing one PAL checkout, `.env`, and conda environment. A fresh installation places PAL inside the initiating client's installed skill directory. Existing installations are adopted rather than cloned again.
 
-## Overview
+## Install
 
-This project is a **one-click skill for quickly configuring and using PAL MCP Server**:
-
-- One-click install/uninstall scripts (`scripts/`) that automatically set up the environment, install dependencies, and register the MCP server
-- Provides the main agent with a "plan-execute" separated subagent delegation capability: via the `clink` tool of PAL MCP, simple tasks are delegated to an isolated subagent (**Codex CLI or Claude Code**), saving main-context tokens
-
-## Usage
-
-### 1. One-click Installation
-
-Prerequisites:
-
-| Dependency | Required | Notes |
-|------|--------|------|
-| conda (Miniconda/Anaconda) | Yes | Python environment management |
-| git | Yes | Clones the PAL MCP Server repo |
-| Codex CLI / Claude Code | At least one | The actual executor of subagent tasks (Codex must be logged in); MCP registration target |
-| Network | Yes | First installation needs access to GitHub |
+Review the plan with the user first:
 
 ```bash
-# Interactive (press Enter to use the default env name pal-mcp-server)
-bash <skill-dir>/scripts/pal-subagent-install.sh
-
-# Non-interactive (specify env name)
-bash <skill-dir>/scripts/pal-subagent-install.sh --env-name pal-mcp-server
+bash scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --dry-run
 ```
 
-The script automatically: clones the repo → writes `.env` (custom API endpoints for local models; kept if it already exists) → creates/reuses a conda env (Python 3.12) → installs dependencies → registers the Claude MCP → backs up and writes the Codex `config.toml`.
-
-### 2. Manual MCP Setup (without running the script)
-
-First prepare the server (clone the PAL MCP Server repo and install dependencies):
+After the user authorizes the concrete plan:
 
 ```bash
-git clone --depth 1 https://github.com/BeehiveInnovations/pal-mcp-server.git
-conda create -n pal-mcp-server python=3.12 -y
-conda run -n pal-mcp-server python -m pip install "mcp>=1.28,<2" -r requirements.txt
-
-# Get the absolute path of the conda env's Python, replace <PYTHON> below
-conda run -n pal-mcp-server python -c 'import sys; print(sys.executable)'
+bash scripts/pal-subagent-install.sh --client claude --env-name pal-mcp-server --yes
 ```
 
-All paths below are placeholders: `<PYTHON>` stands for `/path/to/pal-mcp-server/bin/python`, and `server.py` stands for `/path/to/pal-mcp-server/server.py`.
+Use `--client codex` when initiating from Codex. Interactive terminal execution can omit `--yes`; noninteractive execution requires prior authorization and `--yes`.
 
-**Trae / generic MCP clients** (add in the editor's MCP config):
+The existing conda environment is reused; only a missing environment is created with Python 3.12. The setup helper needs Python 3.11+, normally provided by conda base. Install at least one of Codex CLI or Claude Code. A missing client's skill is still installed; its MCP registration is skipped until the CLI is installed and setup is rerun.
 
-```json
-{
-  "mcpServers": {
-    "pal": {
-      "command": "/path/to/pal-mcp-server/bin/python",
-      "args": [
-        "/path/to/pal-mcp-server/server.py"
-      ]
-    }
-  }
-}
+- Claude: `~/.claude/skills/pal-subagent`.
+- Codex: reuse the saved path, otherwise an existing `$CODEX_HOME/skills` (default `~/.codex/skills`), or `~/.agents/skills` for fresh installations. Override with `--codex-skills-dir`.
+- Shared record: `~/.config/pal-subagent/install.json`, containing paths and environment metadata, never credentials.
+- Select a shared checkout with `--server-dir /absolute/path/pal-mcp-server`.
+- Add `--update` only when explicitly requesting PAL source/dependency updates.
+
+Both clients receive lightweight skill files, excluding the PAL checkout, credentials and logs. Existing `.env` files are retained; changed configuration and skill files are backed up. Conflicting service paths stop installation until explicitly resolved. The installer verifies a real MCP handshake and discovery of `clink`.
+
+## Invoke
+
+Restart/reload clients after installation:
+
+```text
+Claude: /pal-subagent Run project tests and summarize failures
+Codex:  $pal-subagent Run project tests and summarize failures
 ```
 
-**Claude Code**:
+`clink` uses CLI authentication. Other PAL model tools need a working provider; the default local endpoint is a placeholder. Each stdio MCP client may launch its own process, sharing the same code and environment.
+
+## Uninstall
 
 ```bash
-claude mcp add pal -s user -- /path/to/pal-mcp-server/bin/python /path/to/pal-mcp-server/server.py
+bash scripts/pal-subagent-uninstall.sh --client claude --dry-run
+# After authorization: remove only Claude's skill/MCP, retaining Codex and shared resources
+bash scripts/pal-subagent-uninstall.sh --client claude --yes
 ```
 
-**Codex** (append to `~/.codex/config.toml`):
+Use `--client both` for both clients. Add `--remove-server` only when explicitly requesting deletion of the shared checkout; remaining references block deletion. The conda environment is always retained.
 
-```toml
-[mcp_servers.pal]
-type = "stdio"
-command = "/path/to/pal-mcp-server/bin/python"
-args = ["/path/to/pal-mcp-server/server.py"]
-tool_timeout_sec = 1200
-```
+Detailed instructions: [installation](references/install-guide.md), [uninstallation](references/uninstall-guide.md).
 
-### 3. Activation & Verification
-
-After adding the MCP server, **restart the session** for the registration to take effect. The environment is ready once the PAL tools (e.g. `clink`) appear in the main agent's tool list, and tasks can be delegated directly.
-
-CLI self-verification (key point to check):
-
-```bash
-# Claude: expect "Status: ✔ Connected"; "✗ Failed to connect" means registration failed
-claude mcp get pal
-
-# Codex: expect "enabled: true"; "codex mcp list" should show Status = enabled
-codex mcp get pal
-```
-
-### 4. Uninstallation
-
-```bash
-bash <skill-dir>/scripts/pal-subagent-uninstall.sh
-```
-
-Confirm item by item: Claude MCP registration / Codex config section / conda env / cloned repo. For manual uninstall, remove accordingly: `claude mcp remove pal -s user`, the `[mcp_servers.pal]` section in `~/.codex/config.toml`, and the MCP config entry in the editor.
-
-## More
-
-- Detailed installation steps, parameters, and troubleshooting: [references/install-guide.md](references/install-guide.md)
-- Detailed uninstall guide: [references/uninstall-guide.md](references/uninstall-guide.md)
+Development verification (Python 3.11+): `python -m unittest discover -s tests -v`.
